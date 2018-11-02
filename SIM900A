@@ -1,0 +1,238 @@
+#include <SoftwareSerial.h>
+
+// SoftwareSerial SIM900A(2,3);  
+SoftwareSerial SIM900A(7,8);  
+
+enum _parseState {
+  PS_DETECT_MSG_TYPE,
+
+  PS_IGNORING_COMMAND_ECHO,
+
+  PS_HTTPACTION_TYPE,
+  PS_HTTPACTION_RESULT,
+  PS_HTTPACTION_LENGTH,
+
+  PS_HTTPREAD_LENGTH,
+  PS_HTTPREAD_CONTENT
+};
+byte parseState = PS_DETECT_MSG_TYPE;
+char buffer[80];
+byte pos = 0;
+int contentLength = 0;
+int rtc=0;
+unsigned long oldTime;
+
+void resetBuffer() {
+  memset(buffer, 0, sizeof(buffer));
+  pos = 0;
+}
+
+void setup()
+{
+  SIM900A.begin(9600);   // Setting the baud rate of GSM Module  
+  Serial.begin(9600);    // Setting the baud rate of Serial Monitor (Arduino)
+  Serial.println ("SIM900A Ready");
+  delay(100);
+  Serial.println (" Ketik 's' untuk Mengirim SMS dan 'r' untuk Membaca SMS masuk, 'p' untuk koneksi internet");
+}
+
+void loop()
+{
+  if (Serial.available()>0)
+  switch(Serial.read())
+  {
+    case 's':
+      SendMessage();
+      break;
+    case 'r':
+      RecieveMessage();
+      break;
+    case 'p':
+      GetConnection();
+      break;
+  }
+
+ if (SIM900A.available()>0)
+   Serial.write(SIM900A.read());
+}
+
+void GetConnection()
+{
+  SIM900A.println("AT+SAPBR=3,1,\"APN\", \"3Data\"");
+  delay(1000);
+  SIM900A.println("AT+SAPBR=3,1,\"USER\",\"3Data\"");
+  delay(1000);
+  SIM900A.println("AT+SAPBR=3,1,\"PWD\",\"3Data\"");  
+  delay(1000);
+  SIM900A.println("AT+SAPBR=1,1");
+  delay(1000);
+  SIM900A.println("AT+HTTPINIT");
+  delay(1000);
+  SIM900A.println("AT+HTTPPARA=\"CID\",1");
+  delay(1000);delay(1000);
+  SIM900A.println("AT+HTTPPARA=\"URL\",\"http://www.iforce2d.net/test.php\"");
+  //SIM900A.println("AT+HTTPPARA=\"URL\",\"http://rekalpa.com/tirton/API/01/send.php?a=TRJS-001&b=KL-001&c=KS-001&d=10&e=2016-11-11&f=13:15&g=BPM-001&h=PLG-001\"");  
+  delay(1000);
+  SIM900A.println("AT+HTTPACTION=0");
+  delay(1000);
+  /*
+  while(SIM900A.available()) {
+    parseATText(SIM900A.read());
+  }*/
+}
+
+void parseATText(byte b) {
+
+  buffer[pos++] = b;
+
+  if ( pos >= sizeof(buffer) )
+    resetBuffer(); // just to be safe
+
+  /*
+   // Detailed debugging
+   Serial.println();
+   Serial.print("state = ");
+   Serial.println(state);
+   Serial.print("b = ");
+   Serial.println(b);
+   Serial.print("pos = ");
+   Serial.println(pos);
+   Serial.print("buffer = ");
+   Serial.println(buffer);*/
+
+  switch (parseState) {
+  case PS_DETECT_MSG_TYPE: 
+    {
+      if ( b == '\n' )
+        resetBuffer();
+      else {        
+        if ( pos == 3 && strcmp(buffer, "AT+") == 0 ) {
+          parseState = PS_IGNORING_COMMAND_ECHO;
+        }
+        else if ( b == ':' ) {
+          //Serial.print("Checking message type: ");
+          //Serial.println(buffer);
+
+          if ( strcmp(buffer, "+HTTPACTION:") == 0 ) {
+            Serial.println("Received HTTPACTION");
+            parseState = PS_HTTPACTION_TYPE;
+          }
+          else if ( strcmp(buffer, "+HTTPREAD:") == 0 ) {
+            Serial.println("Received HTTPREAD");            
+            parseState = PS_HTTPREAD_LENGTH;
+          }
+          resetBuffer();
+        }
+      }
+    }
+    break;
+
+  case PS_IGNORING_COMMAND_ECHO:
+    {
+      if ( b == '\n' ) {
+        Serial.print("Ignoring echo: ");
+        Serial.println(buffer);
+        parseState = PS_DETECT_MSG_TYPE;
+        resetBuffer();
+      }
+    }
+    break;
+
+  case PS_HTTPACTION_TYPE:
+    {
+      if ( b == ',' ) {
+        Serial.print("HTTPACTION type is ");
+        Serial.println(buffer);
+        parseState = PS_HTTPACTION_RESULT;
+        resetBuffer();
+      }
+    }
+    break;
+
+  case PS_HTTPACTION_RESULT:
+    {
+      if ( b == ',' ) {
+        Serial.print("HTTPACTION result is ");
+        Serial.println(buffer);
+        parseState = PS_HTTPACTION_LENGTH;
+        resetBuffer();
+      }
+    }
+    break;
+
+  case PS_HTTPACTION_LENGTH:
+    {
+      if ( b == '\n' ) {
+        Serial.print("HTTPACTION length is ");
+        Serial.println(buffer);
+        
+        // now request content
+        SIM900A.print("AT+HTTPREAD=0,");
+        SIM900A.println(buffer);
+        
+        parseState = PS_DETECT_MSG_TYPE;
+        resetBuffer();
+      }
+    }
+    break;
+
+  case PS_HTTPREAD_LENGTH:
+    {
+      if ( b == '\n' ) {
+        contentLength = atoi(buffer);
+        Serial.print("HTTPREAD length is ");
+        Serial.println(contentLength);
+        
+        Serial.print("HTTPREAD content: ");
+        
+        parseState = PS_HTTPREAD_CONTENT;
+        resetBuffer();
+      }
+    }
+    break;
+
+  case PS_HTTPREAD_CONTENT:
+    {
+      // for this demo I'm just showing the content bytes in the serial monitor
+      Serial.write(b);
+      
+      contentLength--;
+      
+      if ( contentLength <= 0 ) {
+
+        // all content bytes have now been read
+
+        parseState = PS_DETECT_MSG_TYPE;
+        resetBuffer();
+      }
+    }
+    break;
+  }
+}
+
+
+void SendMessage()
+{
+  Serial.println ("SIM900A Mengirim SMS");
+  SIM900A.println("AT+CMGF=1");    //Sets the GSM Module in Text Mode
+  delay(1000);  // Delay of 1000 milli seconds or 1 second
+  Serial.println ("Set SMS Number");
+  SIM900A.println("AT+CMGS=\"+6281353312763\"\r"); // Replace with your mobile number
+  delay(1000);
+  Serial.println ("Set SMS Content");
+  SIM900A.println("Hello, I am SIM900A GSM Module");// The SMS text you want to send
+  delay(100);
+  Serial.println ("Finish");
+  SIM900A.println((char)26);// ASCII code of CTRL+Z
+  delay(1000);
+  Serial.println (" ->SMS Selesai dikirim");
+}
+
+void RecieveMessage()
+{
+  Serial.println ("SIM900A Membaca SMS");
+  delay (1000);
+  SIM900A.println("AT+CNMI=2,2,0,0,0"); // AT Command to receive a live SMS
+  delay(1000);
+  Serial.write (" ->Unread SMS Selesai dibaca");
+ }
