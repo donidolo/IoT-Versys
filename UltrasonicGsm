@@ -1,0 +1,46 @@
+void GSMAccess(long nVol)
+{  
+  SIM900A.println("AT+SAPBR=3,1,\"APN\",\"3Data\"");
+  delay(1000);
+  SIM900A.println("AT+SAPBR=3,1,\"USER\",\"3Data\"");
+  delay(1000);
+  SIM900A.println("AT+SAPBR=3,1,\"PWD\",\"3Data\"");  
+  delay(1000);
+  SIM900A.println("AT+SAPBR=1,1");
+  delay(1000);
+  SIM900A.println("AT+HTTPINIT");
+  delay(1000);
+  toSerial();
+  
+  SIM900A.println("AT+HTTPPARA=\"CID\",1");
+  delay(1000);
+  toSerial();   
+  SIM900A.println("AT+HTTPPARA=\"URL\",\"http://rekalpa.com/tirton/API/01/send.php?a=TRJS-001&b=KL-001&c=KS-001&e=2016-11-14&f=13:15&g=BPM-001&h=PLG-001&token=31f9920feb81871255571790e524d7ec&d="+String(nVol)+"\"");    
+  delay(1000);
+  toSerial();
+  
+  SIM900A.println("AT+HTTPACTION=0");
+  delay(1000);
+  toSerial();
+
+  // read server response
+   SIM900A.println("AT+HTTPREAD"); 
+   delay(1000);
+   toSerial();
+
+   SIM900A.println("");
+   SIM900A.println("AT+HTTPTERM");
+   toSerial();
+   delay(300);
+
+   SIM900A.println("");
+   delay(1000);
+}
+
+void toSerial()
+{
+  while(SIM900A.available()!=0)
+  {
+    Serial.write(SIM900A.read());
+  }
+}
